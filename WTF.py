@@ -253,7 +253,7 @@ Previous analysis: {initial_analysis}
 Format your response as:
 🍽️ **Meal Analysis Results**
 
-1. A name of what food you can see in the image using 2 to 6 words, DO NOT provide a description of the meal.
+1. Provide ONLY a name for the meal using 2-6 words, no description.
 2. General nutritional insights about the food
 3. Relevant advice based on the user's message
 
@@ -268,7 +268,7 @@ Format your response as:
 
 🍽️ **Meal Analysis Results**
 
-Provide a brief description of the food.
+Provide ONLY a name for the meal using 2-6 words, no description.
 
 📊 **Nutritional Information:**
 • 🔥 Calories: {nutrition_data.get('total_calories', 'N/A')}
