@@ -2,3 +2,4 @@ gradio
 ollama
 Pillow
 sqlmodel
+watchfiles
