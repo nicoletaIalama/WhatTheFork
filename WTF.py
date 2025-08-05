@@ -2,6 +2,7 @@ import gradio as gr
 import ollama
 import base64
 from PIL import Image
+from database import create_db_and_tables
 import io
 import time
 import json
