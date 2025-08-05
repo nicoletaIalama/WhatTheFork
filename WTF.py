@@ -344,18 +344,20 @@ Previous analysis: {initial_analysis}
                 # Format all foods for context
                 meals_text = ""
                 if all_foods:
-                    meals_text = "User's meal history:\n"
+                    meals_text = "Complete meal tracking history (all meals user has logged):\n"
                     for food in all_foods:
-                        meals_text += f"- {food['name']}: {food['calories']} calories, {food['proteins']}g protein, {food['carbs']}g carbs, {food['fats']}g fat\n"
+                        meals_text += f"- {food.name}: {food.calories} calories, {food.proteins}g protein, {food.carbs}g carbs, {food.fats}g fat\n"
                 else:
-                    meals_text = "No meals recorded."
+                    meals_text = "Complete meal tracking history: The user has not logged any meals yet (database is empty)."
                 
             except Exception as db_error:
                 print(f"⚠️ Database query error: {db_error}")
                 meals_text = "Unable to retrieve meal history."
             
             # Create informed conversational prompt using database data
-            prompt = f"""You are a helpful nutritionist and food expert with access to the user's food tracking data. The user asked: "{message}"
+            prompt = f"""You are a helpful nutritionist and food expert. I am providing you with the user's complete food tracking data below. The user asked: "{message}"
+
+IMPORTANT: You have full access to their meal history and daily progress. Use this data to provide personalized advice.
 
 Current daily progress:
 - Daily calories consumed: {daily_calories}
@@ -364,7 +366,16 @@ Current daily progress:
 
 {meals_text}
 
-Based on this information about their eating habits and current daily progress, provide helpful, personalized advice about nutrition, healthy eating, meal planning, diet analysis, or fitness. Reference their actual food data when relevant. Be conversational, informative, and supportive."""
+Based on the meal history and daily progress data provided above, give personalized advice about nutrition, healthy eating, meal planning, diet analysis, or fitness. Always reference their actual tracked meals when relevant. Be conversational, informative, and supportive."""
+
+            # Debug: Print what data is being sent to the model
+            print(f"\n🔍 Debug - Meals found in database: {len(all_foods) if all_foods else 0}")
+            print(f"🔍 Debug - Daily calories: {daily_calories}")
+            if all_foods:
+                print(f"🔍 Debug - Sample meals: {[food.name for food in all_foods[:3]]}")
+            else:
+                print("🔍 Debug - No meals in database!")
+            print(f"🔍 Debug - Prompt length: {len(prompt)} characters")
 
             # Add user message immediately
             history.append((message, ""))
@@ -463,9 +474,7 @@ def create_interface():
                 placeholder="Type your message or drag and drop a food image here...",
                 file_types=["image"],
                 lines=1,
-                max_lines=1
-                
-                ,
+                max_lines=1,
                 show_label=False,
                 submit_btn=True,
                 autofocus=True,
