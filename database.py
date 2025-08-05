@@ -1,5 +1,5 @@
 from sqlmodel import SQLModel, Session, create_engine, select
-from models import Food
+from models import Food, Account
 
 # Database setup
 DATABASE_URL = "sqlite:///wtf.sqlite"
@@ -23,4 +23,11 @@ def get_all_foods():
     with Session(engine) as session:
         statement = select(Food).order_by(Food.created_at.desc())
         foods = session.exec(statement).all()
-        return foods 
+        return foods
+
+def get_account():
+    """Fetch the first account or return None if no accounts exist"""
+    with Session(engine) as session:
+        statement = select(Account).limit(1)
+        account = session.exec(statement).first()
+        return account 

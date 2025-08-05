@@ -7,5 +7,5 @@ Built with Python and Gradio for fast prototyping.
 ## 🚀 Run the App
 
 ```bash
-pip install gradio
-python app.py
+pip install -r requirements.txt
+python WTF.py
