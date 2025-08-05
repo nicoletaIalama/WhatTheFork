@@ -30,15 +30,11 @@ def create_progress_bar_html(current_calories, daily_goal):
     else:
         percentage = (current_calories / daily_goal) * 100
     
-    # Determine color based on progress (allow over 100%)
-    if percentage < 50:
-        color = "#4CAF50"  # Green
-    elif percentage < 80:
-        color = "#FF9800"  # Orange
-    elif percentage <= 100:
-        color = "#2196F3"  # Blue
-    else:
+     # Use purple theme color by default, red only when over 100%
+    if percentage > 100:
         color = "#F44336"  # Red (over goal)
+    else:
+        color = "#4F46DE"  # Purple theme color
     
     # Cap the visual width at 100% but show the actual percentage
     visual_width = min(percentage, 100)
@@ -56,9 +52,12 @@ def create_progress_bar_html(current_calories, daily_goal):
     <div style="margin: 20px 0;">
         <h3 style="color: #333; margin-bottom: 10px;">📊 Daily Calorie Progress</h3>
         <div style="background-color: #f0f0f0; border-radius: 10px; padding: 4px; width: 100%; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);">
-            <div style="background-color: {color}; height: 30px; width: {visual_width}%; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; transition: all 0.3s ease;">
-                {percentage:.1f}%
-            </div>
+                         <div style="position: relative; height: 30px; width: 100%;">
+                 <div style="background-color: {color}; height: 100%; width: {visual_width}%; border-radius: 6px; transition: all 0.3s ease;"></div>
+                 <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: center; color: #333; font-weight: bold;">
+                     {percentage:.1f}%
+                 </div>
+             </div>
         </div>
         <div style="display: flex; justify-content: space-between; margin-top: 8px; font-size: 14px; color: #666;">
             <span>🔥 {current_calories:.0f} calories consumed</span>
@@ -225,15 +224,14 @@ Examples of good names: "Grilled Chicken Salad", "Pepperoni Pizza", "Beef Burger
                 # Now generate the final streaming response using the text analysis
                 if message.strip():
                     if nutrition_data:
-                        description_prompt = f"""Based on this food analysis and the user's message "{message}", create a complete meal analysis response:
+                        description_prompt = f"""I've shared an image of food with you along with this message: "{message}"
 
 Previous analysis: {initial_analysis}
 
 Format your response as:
 
-🍽️ **Meal Analysis Results**
-
-Provide a brief description of the food.
+🍽️ **Meal Name:**
+[Provide ONLY a name for the meal using 2-6 words, no description]
 
 📊 **Nutritional Information:**
 • 🔥 Calories: {nutrition_data.get('total_calories', 'N/A')}
@@ -255,8 +253,8 @@ Previous analysis: {initial_analysis}
 Format your response as:
 🍽️ **Meal Analysis Results**
 
-1. A description of the food
-2. General nutritional insights
+1. Provide ONLY a name for the meal using 2-6 words, no description.
+2. General nutritional insights about the food
 3. Relevant advice based on the user's message
 
 Be conversational and helpful."""
@@ -270,7 +268,7 @@ Format your response as:
 
 🍽️ **Meal Analysis Results**
 
-Provide a brief description of the food.
+Provide ONLY a name for the meal using 2-6 words, no description.
 
 📊 **Nutritional Information:**
 • 🔥 Calories: {nutrition_data.get('total_calories', 'N/A')}
@@ -285,18 +283,14 @@ Provide a brief description of the food.
 
 Then provide one helpful insight or tip about the meal. Be conversational and helpful."""
                     else:
-                        description_prompt = f"""Based on this food analysis, create a meal analysis response:
+                        description_prompt = f"""I've shared an image of food with you. Please provide a meal analysis that includes:
 
 Previous analysis: {initial_analysis}
 
-Format your response as:
-🍽️ **Meal Analysis Results**
+🍽️ **Meal Name:**
+[Provide ONLY a name for the meal using 2-6 words, no description]
 
-1. A description of the food
-2. General nutritional insights  
-3. One helpful insight or tip
-
-Be conversational and helpful."""
+[Provide general nutritional insights and one helpful tip. Be conversational and helpful.]"""
                 
                 # Add user message immediately
                 history[-1] = (user_message, "")
@@ -468,10 +462,13 @@ def create_interface():
             multimodal_input = gr.MultimodalTextbox(
                 placeholder="Type your message or drag and drop a food image here...",
                 file_types=["image"],
-                lines=3,
-                max_lines=6,
+                lines=1,
+                max_lines=1
+                
+                ,
                 show_label=False,
                 submit_btn=True,
+                autofocus=True,
                 elem_classes=["input-container"]
             )
             
