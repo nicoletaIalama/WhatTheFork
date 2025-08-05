@@ -9,11 +9,12 @@ import json
 import re
 import os
 from datetime import datetime
+from user_profile import create_profile_modal, get_user_daily_calories, get_user_name
 
 # Global state for calorie tracking
 daily_calories = 0
 current_date = datetime.now().date()
-daily_goal = 2000  # Default daily goal
+daily_goal = get_user_daily_calories()  # Loads from user profile
 
 def reset_daily_calories_if_new_day():
     """Reset daily calories if it's a new day"""
@@ -431,17 +432,131 @@ def create_interface():
             max-height: 100% !important;
             overflow: hidden !important;
         }
+        /* Improved Modal - No Scrolling, Better Flow */
+        .modal-overlay {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            background-color: rgba(0, 0, 0, 0.8) !important;
+            z-index: 9999 !important;
+            display: flex !important;
+            justify-content: center !important;
+            align-items: center !important;
+            padding: 15px !important;
+            backdrop-filter: blur(8px) !important;
+            animation: fadeIn 0.3s ease-out !important;
+        }
+
+        .modal-card {
+            background: white !important;
+            border-radius: 16px !important;
+            max-width: 700px !important;
+            width: 90% !important;
+            max-height: 90vh !important;
+            overflow: hidden !important;
+            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.4) !important;
+            animation: modalSlideIn 0.4s ease-out !important;
+            position: relative !important;
+            display: flex !important;
+            flex-direction: column !important;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes modalSlideIn {
+            from { opacity: 0; transform: translateY(-30px) scale(0.95); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        .modal-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+            color: white !important;
+            padding: 18px 25px 14px 25px !important;
+            position: relative !important;
+            flex-grow: 0 !important;
+            border-radius: 16px 16px 0 0 !important;
+        }
+
+        .modal-close-small {
+            position: absolute !important;
+            top: 10px !important;
+            right: 12px !important;
+            background: rgba(255, 255, 255, 0.2) !important;
+            color: white !important;
+            border: none !important;
+            border-radius: 50% !important;
+            width: 24px !important;
+            height: 24px !important;
+            cursor: pointer !important;
+            font-size: 14px !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            transition: all 0.2s ease !important;
+            font-weight: bold !important;
+        }
+
+        .modal-close-small:hover {
+            background: rgba(255, 255, 255, 0.3) !important;
+            transform: scale(1.1) !important;
+        }
+
+        .modal-body-improved {
+            padding: 25px !important;
+            flex: 1 !important;
+            overflow-y: auto !important;
+            display: flex !important;
+            flex-direction: column !important;
+            gap: 20px !important;
+        }
+
+        .form-section-improved {
+            background: #f8f9fa !important;
+            padding: 18px !important;
+            border-radius: 10px !important;
+            border: 1px solid #dee2e6 !important;
+        }
+
+        .form-grid-improved {
+            display: grid !important;
+            grid-template-columns: 1fr !important;
+            gap: 18px !important;
+        }
+
+        @media (max-width: 768px) {
+            .form-grid-improved {
+                grid-template-columns: 1fr !important;
+            }
+        }
+        /* Ensure all form elements are interactive */
+        .modal-body input,
+        .modal-body select,
+        .modal-body textarea,
+        .modal-body button,
+        .modal-body label {
+            pointer-events: auto !important;
+            z-index: 10001 !important;
+            position: relative !important;
+        }
         """
     ) as demo:
         with gr.Column(elem_classes=["main"]):
-            gr.Markdown(
-                """
-                # 🍽️ WhatTheFork? - Your Food & Nutrition Chat Assistant
-                
-                Chat with me about food and nutrition! Upload food images to track calories and get nutritional analysis.
-                """,
-                elem_classes=["header"]
-            )
+            # Header with profile button
+            with gr.Row():
+                with gr.Column():
+                    gr.Markdown(
+                        """
+                        # 🍽️ WhatTheFork? - Your Food & Nutrition Chat Assistant
+                        
+                        Chat with me about food and nutrition! Upload food images to track calories and get nutritional analysis.
+                        """,
+                        elem_classes=["header"]
+                    )
             
             # Daily progress bar at the top
             progress_output = gr.HTML(
@@ -474,8 +589,98 @@ def create_interface():
             
             # Reset button for daily calories
             with gr.Row():
-                reset_btn = gr.Button("🔄 Reset Daily Calories", variant="secondary", size="sm")
-        
+                reset_btn = gr.Button("🔄 Reset Daily Calories", variant="secondary")
+                profile_btn = gr.Button("👤 Edit Profile", variant="secondary")
+            
+            # Modal overlay
+            modal_overlay = gr.Column(visible=False, elem_classes=["modal-overlay"])
+            with modal_overlay:
+                modal_card = gr.Column(elem_classes=["modal-card"])
+                with modal_card:
+                    
+                    # Header with small close button
+                    with gr.Column(elem_classes=["modal-header"]):
+                        gr.HTML("""
+                        <h2 style="margin: 0; font-size: 20px; font-weight: 600;">👤 User Profile Setup</h2>
+                        <p style="margin: 4px 0 0 0; opacity: 0.9; font-size: 13px;">Create your personalized nutrition profile</p>
+                        """)
+                        close_btn = gr.Button("×", elem_classes=["modal-close-small"])
+                    
+                    # Body with improved form layout
+                    with gr.Column(elem_classes=["modal-body-improved"]):
+                        
+                        # Two-column form grid (no scrolling needed)
+                        with gr.Column(elem_classes=["form-grid-improved"]):
+                            with gr.Row():
+                                # Personal Information Section
+                                with gr.Column(elem_classes=["form-section-improved"]):
+                                    gr.HTML('<h3 style="color: #495057; margin: 0 0 12px 0; font-size: 15px; border-bottom: 2px solid #667eea; padding-bottom: 6px;">📋 Personal Information</h3>')
+                                    
+                                    # Your form fields here
+                                    name_input = gr.Textbox(label="👤 Name", placeholder="Enter your name")
+                                    
+                                    with gr.Row():
+                                        age_input = gr.Number(label="🎂 Age", value=25, minimum=10, maximum=120)
+                                        gender_input = gr.Radio(label="⚧ Gender", choices=['male', 'female'], value='male')
+                                    
+                                    with gr.Row():
+                                        height_input = gr.Number(label="📏 Height (cm)", value=170, minimum=100, maximum=250)
+                                        weight_input = gr.Number(label="⚖️ Weight (kg)", value=70, minimum=30, maximum=300)
+                                
+                                # Activity & Goals Section
+                                with gr.Column(elem_classes=["form-section-improved"]):
+                                    gr.HTML('<h3 style="color: #495057; margin: 0 0 12px 0; font-size: 15px; border-bottom: 2px solid #667eea; padding-bottom: 6px;">🏃 Activity & Goals</h3>')
+                                    
+                                    activity_input = gr.Radio(
+                                        label="🏃‍♂️ Activity Level",
+                                        choices=[('sedentary', 'Sedentary'), ('light', 'Light'), ('moderate', 'Moderate'), ('active', 'Active'), ('very_active', 'Very Active')],
+                                        value='moderate'
+                                    )
+                                    
+                                    goal_input = gr.Radio(
+                                        label="🎯 Goal",
+                                        choices=[('lose_fast', '🔥 Fast Loss'), ('lose_slow', '📉 Slow Loss'), ('maintain', '⚖️ Maintain'), ('gain_slow', '📈 Slow Gain'), ('gain_fast', '💪 Fast Gain')],
+                                        value='maintain'
+                                    )
+                        
+                        # Results display
+                        result_output = gr.Markdown("", visible=True)
+                        
+                        # Action buttons
+                        with gr.Row(elem_id="form-actions"):
+                            save_btn = gr.Button("💾 Save Profile", variant="primary")
+                            cancel_btn = gr.Button("Cancel", variant="secondary")
+
+        # Event handler functions (add these inside create_interface())
+        def show_profile_modal():
+            return gr.update(visible=True)
+
+        def hide_modal():
+            return gr.update(visible=False)
+
+        def refresh_goal_from_profile():
+            # Update global daily_goal and refresh progress bar
+            global daily_goal
+            daily_goal = get_user_daily_calories()
+            updated_progress = create_progress_bar_html(daily_calories, daily_goal)
+            return gr.update(visible=False), updated_progress
+
+        # Connect event handlers (add these at the end of create_interface())
+        profile_btn.click(
+            fn=show_profile_modal,
+            outputs=[modal_overlay]
+        )
+
+        close_btn.click(
+            fn=hide_modal,
+            outputs=[modal_overlay]
+        )
+
+        reset_btn.click(
+            fn=refresh_goal_from_profile,
+            outputs=[modal_overlay, progress_output]
+        )
+
         # Handle multimodal submission with streaming
         def handle_multimodal_submit(multimodal_data, history):
             if multimodal_data is None:
@@ -523,4 +728,4 @@ if __name__ == "__main__":
     
     # Launch the chat interface
     demo = create_interface()
-    demo.launch(share=False, server_name="0.0.0.0", server_port=7860)
+    demo.launch(share=False, server_name="127.0.0.1", server_port=7860)
