@@ -2,7 +2,7 @@ import gradio as gr
 import ollama
 import base64
 from PIL import Image
-from database import create_db_and_tables, save_food
+from database import create_db_and_tables, save_food, get_all_foods
 import io
 import time
 import json
@@ -152,7 +152,7 @@ Structure your response clearly with these sections. Be thorough but concise.'''
                 # Extract meal name from the initial analysis
                 try:
                     name_response = ollama.generate(
-                        model='llava',
+                        model='llama3.2',
                         prompt=f'''Based on this food analysis, extract ONLY the meal name (2-4 words max). Return just the name, nothing else.
 
 Analysis: {initial_analysis}
@@ -306,7 +306,7 @@ Be conversational and helpful."""
                 ai_response = ""
                 try:
                     stream = ollama.generate(
-                        model='llava',
+                        model='llama3.2',
                         prompt=description_prompt,
                         stream=True,
                         options={
@@ -335,45 +335,70 @@ Be conversational and helpful."""
                 user_message = f"{message} [🖼️ Error]" if message.strip() else "[🖼️ Error]"
                 history.append((user_message, ai_response))
                 yield "", history
-
+        
         else:
-            # Text-only conversation
+            # Text-only conversation with database-informed responses
             if not message.strip():
                 yield "", history
                 return
             
-            # Create conversational prompt for nutrition questions
-            prompt = f"""You are a helpful nutritionist and food expert. The user asked: "{message}"
+            # Query database for user's food history to provide informed responses
+            try:
+                # Get all foods from database
+                all_foods = get_all_foods()
+                
+                # Format all foods for context
+                meals_text = ""
+                if all_foods:
+                    meals_text = "User's meal history:\n"
+                    for food in all_foods:
+                        meals_text += f"- {food['name']}: {food['calories']} calories, {food['proteins']}g protein, {food['carbs']}g carbs, {food['fats']}g fat\n"
+                else:
+                    meals_text = "No meals recorded."
+                
+            except Exception as db_error:
+                print(f"⚠️ Database query error: {db_error}")
+                meals_text = "Unable to retrieve meal history."
+            
+            # Create informed conversational prompt using database data
+            prompt = f"""You are a helpful nutritionist and food expert with access to the user's food tracking data. The user asked: "{message}"
 
-Provide helpful advice about nutrition, healthy eating, meal planning, or calorie management. Be conversational and informative."""
+Current daily progress:
+- Daily calories consumed: {daily_calories}
+- Daily calorie goal: {daily_goal}
+- Remaining calories: {daily_goal - daily_calories}
+
+{meals_text}
+
+Based on this information about their eating habits and current daily progress, provide helpful, personalized advice about nutrition, healthy eating, meal planning, diet analysis, or fitness. Reference their actual food data when relevant. Be conversational, informative, and supportive."""
 
             # Add user message immediately
             history.append((message, ""))
             yield "", history
-
+            
             # Stream the text response
             ai_response = ""
             try:
                 stream = ollama.generate(
-                    model='llava',
+                    model='llama3.2',
                     prompt=prompt,
                     stream=True,
                     options={
                         'temperature': 0.8,
-                        'num_predict': 200,
-                        'num_ctx': 1024,
+                        'num_predict': 250,  # Slightly longer for more detailed responses
+                        'num_ctx': 2048,     # Increased for longer context with database data
                         'top_p': 0.9,
                         'repeat_penalty': 1.1
                     }
                 )
-
+                
                 for chunk in stream:
                     if chunk.get('response'):
                         ai_response += chunk['response']
                         # Update the last message in history with streaming response
                         history[-1] = (message, ai_response)
                         yield "", history
-
+                        
             except Exception as e:
                 ai_response = f"Sorry, I had trouble responding to that: {str(e)}"
                 history[-1] = (message, ai_response)
