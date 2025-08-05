@@ -1,4 +1,5 @@
 import gradio as gr
+from database import create_db_and_tables
 
 def classify_food(image):
     # Simulate image classification
@@ -19,6 +20,8 @@ def full_pipeline(image):
     advice = recommend_diet(cal)
     return f"Food: {food}\nCalories: {cal}\nAdvice: {advice}"
 
+
+create_db_and_tables()
 gr.Interface(fn=full_pipeline,
              inputs=gr.Image(type="pil"),
              outputs="text").launch()
