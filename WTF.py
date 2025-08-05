@@ -119,18 +119,25 @@ def chat_with_ollama(message: str, history, image_path=None):
                     image_bytes = img_byte_arr.getvalue()
                     image_base64 = base64.b64encode(image_bytes).decode('utf-8')
                 
-                # First get JSON data for nutrition information (non-streaming)
+                # Get comprehensive analysis from image (single call)
                 try:
-                    json_response = ollama.generate(
+                    initial_response = ollama.generate(
                         model='llava',
-                        prompt='Analyze this food image and provide nutritional information. Respond ONLY with valid JSON in this exact format: {"total_calories": 500, "total_fats_g": 25, "total_proteins_g": 30, "total_carbs_g": 45}. Estimate the total nutritional values for all food items visible in the image.',
+                        prompt='''Analyze this food image and provide a comprehensive analysis. Your response should include:
+
+1. A short, descriptive name for the meal (2-4 words max, examples: "Grilled Chicken Salad", "Pepperoni Pizza")
+2. A detailed description of what you see in the image
+3. Nutritional information in JSON format: {"total_calories": 500, "total_fats_g": 25, "total_proteins_g": 30, "total_carbs_g": 45}
+4. Key nutritional highlights and insights
+
+Structure your response clearly with these sections. Be thorough but concise.''',
                         images=[image_base64],
                         options={
-                            'temperature': 0.1,   # Very consistent for JSON format
-                            'num_predict': 100,   # Short for JSON response
-                            'num_ctx': 512,       # Minimal context
-                            'top_p': 0.6,         # Focused
-                            'repeat_penalty': 1.1  # Avoid repetition
+                            'temperature': 0.3,
+                            'num_predict': 300,   # Longer for comprehensive analysis
+                            'num_ctx': 1024,
+                            'top_p': 0.8,
+                            'repeat_penalty': 1.1
                         }
                     )
                 except Exception as ollama_error:
@@ -140,7 +147,36 @@ def chat_with_ollama(message: str, history, image_path=None):
                     yield "", history
                     return
                 
-                json_response_text = json_response.get('response', 'No response received from model')
+                initial_analysis = initial_response.get('response', 'No response received from model')
+                
+                # Extract meal name from the initial analysis
+                try:
+                    name_response = ollama.generate(
+                        model='llava',
+                        prompt=f'''Based on this food analysis, extract ONLY the meal name (2-4 words max). Return just the name, nothing else.
+
+Analysis: {initial_analysis}
+
+Examples of good names: "Grilled Chicken Salad", "Pepperoni Pizza", "Beef Burger", "Caesar Salad"''',
+                        options={
+                            'temperature': 0.1,
+                            'num_predict': 10,
+                            'num_ctx': 512,
+                            'top_p': 0.6,
+                            'repeat_penalty': 1.1
+                        }
+                    )
+                    meal_name = name_response.get('response', '').strip()
+                    # Clean up the name
+                    meal_name = meal_name.replace('"', '').replace("'", "").strip()
+                    if not meal_name or len(meal_name) > 50:
+                        meal_name = f"Meal_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                except Exception as name_error:
+                    print(f"⚠️ Error extracting meal name: {name_error}")
+                    meal_name = f"Meal_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                
+                # Extract JSON from the initial analysis
+                json_response_text = initial_analysis
                 
                 # Process and validate JSON response
                 nutrition_data = None
@@ -156,14 +192,14 @@ def chat_with_ollama(message: str, history, image_path=None):
                             nutrition_data = json.loads(json_str)
 
                             try:
-                                food_name = f"Meal_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
                                 saved_food = save_food(
-                                    name=food_name,
+                                    name=meal_name,
                                     calories=nutrition_data.get('total_calories', 0),
                                     fats=nutrition_data.get('total_fats_g', 0),
                                     proteins=nutrition_data.get('total_proteins_g', 0),
                                     carbs=nutrition_data.get('total_carbs_g', 0)
                                 )
+                                print(f"✅ Saved '{meal_name}' to database")
                             except Exception as db_error:
                                 print(f"❌ Database error: {db_error}")
                             
@@ -186,91 +222,97 @@ def chat_with_ollama(message: str, history, image_path=None):
                 # Add user message immediately
                 history.append((user_message, ""))
 
-                # Now get full descriptive response with streaming including nutritional info
+                # Now generate the final streaming response using the text analysis
                 if message.strip():
                     if nutrition_data:
-                        description_prompt = f"""I've shared an image of food with you along with this message: "{message}"
+                        description_prompt = f"""Based on this food analysis and the user's message "{message}", create a complete meal analysis response:
 
-You should provide a complete meal analysis response that includes:
+Previous analysis: {initial_analysis}
+
+Format your response as:
 
 🍽️ **Meal Analysis Results**
 
-First, provide a brief description of what food you can see in the image.
+Provide a brief description of the food.
 
-Then include the nutritional information in this format:
 📊 **Nutritional Information:**
 • 🔥 Calories: {nutrition_data.get('total_calories', 'N/A')}
 • 🥑 Fats: {nutrition_data.get('total_fats_g', 'N/A')}g  
 • 🥩 Proteins: {nutrition_data.get('total_proteins_g', 'N/A')}g
 • 🍞 Carbs: {nutrition_data.get('total_carbs_g', 'N/A')}g
 
-Then show the daily progress:
 📈 **Daily Progress:**
 • Meal added: +{meal_calories} calories
 • Total today: {daily_calories} calories  
 • Daily goal: {daily_goal} calories
 
-Finally, provide relevant advice based on the user's message and nutritional analysis. Be conversational and helpful."""
+Then provide relevant advice based on the user's message and nutritional analysis. Be conversational and helpful."""
                     else:
-                        description_prompt = f"""I've shared an image of food with you along with this message: "{message}"
+                        description_prompt = f"""Based on this food analysis and the user's message "{message}", create a helpful response:
 
-Please provide a helpful response that includes:
+Previous analysis: {initial_analysis}
+
+Format your response as:
 🍽️ **Meal Analysis Results**
 
-1. A description of what food you can see in the image
-2. General nutritional insights about the food
+1. A description of the food
+2. General nutritional insights
 3. Relevant advice based on the user's message
 
 Be conversational and helpful."""
                 else:
                     if nutrition_data:
-                        description_prompt = f"""I've shared an image of food with you. Please provide a complete meal analysis that includes:
+                        description_prompt = f"""Based on this food analysis, create a complete meal analysis response:
+
+Previous analysis: {initial_analysis}
+
+Format your response as:
 
 🍽️ **Meal Analysis Results**
 
-First, provide a brief description of what food you can see in the image.
+Provide a brief description of the food.
 
-Then include the nutritional information in this format:
 📊 **Nutritional Information:**
 • 🔥 Calories: {nutrition_data.get('total_calories', 'N/A')}
 • 🥑 Fats: {nutrition_data.get('total_fats_g', 'N/A')}g
 • 🥩 Proteins: {nutrition_data.get('total_proteins_g', 'N/A')}g  
 • 🍞 Carbs: {nutrition_data.get('total_carbs_g', 'N/A')}g
 
-Then show the daily progress:
 📈 **Daily Progress:**
 • Meal added: +{meal_calories} calories
 • Total today: {daily_calories} calories
 • Daily goal: {daily_goal} calories
 
-Finally, provide one helpful insight or tip about the meal. Be conversational and helpful."""
+Then provide one helpful insight or tip about the meal. Be conversational and helpful."""
                     else:
-                        description_prompt = """I've shared an image of food with you. Please provide a meal analysis that includes:
+                        description_prompt = f"""Based on this food analysis, create a meal analysis response:
 
+Previous analysis: {initial_analysis}
+
+Format your response as:
 🍽️ **Meal Analysis Results**
 
-1. A description of what food you can see in the image
-2. General nutritional insights about the food  
+1. A description of the food
+2. General nutritional insights  
 3. One helpful insight or tip
 
 Be conversational and helpful."""
-
+                
                 # Add user message immediately
                 history[-1] = (user_message, "")
                 yield "", history
 
-                # Stream the full response
+                # Stream the full response using text model (no image needed)
                 ai_response = ""
                 try:
                     stream = ollama.generate(
                         model='llava',
                         prompt=description_prompt,
-                        images=[image_base64],
                         stream=True,
                         options={
                             'temperature': 0.7,
                             'num_predict': 300,  # Increased for full response
-                            'num_ctx': 1024,
+                            'num_ctx': 2048,     # Increased for longer context
                             'top_p': 0.9,
                             'repeat_penalty': 1.1
                         }
@@ -313,7 +355,7 @@ Provide helpful advice about nutrition, healthy eating, meal planning, or calori
             ai_response = ""
             try:
                 stream = ollama.generate(
-                    model='llama3.2',
+                    model='llava',
                     prompt=prompt,
                     stream=True,
                     options={
