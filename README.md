@@ -8,4 +8,4 @@ Built with Python and Gradio for fast prototyping.
 
 ```bash
 pip install gradio
-python app.py
+python WTF.py
