@@ -6,6 +6,67 @@ import io
 import time
 import json
 import re
+from datetime import datetime
+
+# Global state for calorie tracking
+daily_calories = 0
+current_date = datetime.now().date()
+
+def reset_daily_calories_if_new_day():
+    """Reset daily calories if it's a new day"""
+    global daily_calories, current_date
+    today = datetime.now().date()
+    if today != current_date:
+        daily_calories = 0
+        current_date = today
+
+def create_progress_bar_html(current_calories, daily_goal):
+    """Create an HTML progress bar for calorie tracking"""
+    if daily_goal <= 0:
+        percentage = 0
+    else:
+        percentage = (current_calories / daily_goal) * 100
+    
+    # Determine color based on progress (allow over 100%)
+    if percentage < 50:
+        color = "#4CAF50"  # Green
+    elif percentage < 80:
+        color = "#FF9800"  # Orange
+    elif percentage <= 100:
+        color = "#2196F3"  # Blue
+    else:
+        color = "#F44336"  # Red (over goal)
+    
+    # Cap the visual width at 100% but show the actual percentage
+    visual_width = min(percentage, 100)
+    
+    # Different messages based on progress
+    if percentage >= 100:
+        if percentage > 120:
+            status_message = f"⚠️ Over goal by {current_calories - daily_goal:.0f} calories!"
+        else:
+            status_message = "🎉 Great job! You've reached your goal!"
+    else:
+        status_message = f"💪 {daily_goal - current_calories:.0f} calories remaining"
+    
+    progress_html = f"""
+    <div style="margin: 20px 0;">
+        <h3 style="color: #333; margin-bottom: 10px;">📊 Daily Calorie Progress</h3>
+        <div style="background-color: #f0f0f0; border-radius: 10px; padding: 4px; width: 100%; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);">
+            <div style="background-color: {color}; height: 30px; width: {visual_width}%; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; transition: all 0.3s ease;">
+                {percentage:.1f}%
+            </div>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-top: 8px; font-size: 14px; color: #666;">
+            <span>🔥 {current_calories:.0f} calories consumed</span>
+            <span>🎯 Goal: {daily_goal:.0f} calories</span>
+        </div>
+        <div style="text-align: center; margin-top: 5px; font-size: 13px; color: #888;">
+            {status_message}
+        </div>
+    </div>
+    """
+    return progress_html
 
 def warm_up_model():
     """Pre-warm the LLaVA model to reduce first-time latency"""
@@ -14,9 +75,17 @@ def warm_up_model():
     except Exception as e:
         pass
 
-def analyze_nutrition(image_path):
+def analyze_nutrition(image_path, daily_goal):
+    global daily_calories
+    
     if image_path is None:
-        return "Please upload an image."
+        return "Please upload an image.", ""
+    
+    if daily_goal is None or daily_goal <= 0:
+        return "Please set a valid daily calorie goal.", ""
+    
+    # Reset calories if it's a new day
+    reset_daily_calories_if_new_day()
 
     try:
         start_time = time.time()
@@ -80,32 +149,109 @@ def analyze_nutrition(image_path):
                     # Validate it's proper JSON
                     nutrition_data = json.loads(json_str)
                     
-                    # Format for display
-                    formatted_output = json.dumps(nutrition_data, indent=2)
-                    return formatted_output
+                    # Extract calories and update daily total
+                    meal_calories = nutrition_data.get('total_calories', 0)
+                    daily_calories += meal_calories
+                    
+                    # Format nutritional information for display
+                    formatted_output = f"""
+🍽️ **Meal Analysis Results**
+
+📊 **Nutritional Information:**
+• 🔥 Calories: {nutrition_data.get('total_calories', 'N/A')}
+• 🥑 Fats: {nutrition_data.get('total_fats_g', 'N/A')}g
+• 🥩 Proteins: {nutrition_data.get('total_proteins_g', 'N/A')}g
+• 🍞 Carbs: {nutrition_data.get('total_carbs_g', 'N/A')}g
+
+📈 **Daily Progress:**
+• Meal added: +{meal_calories} calories
+• Total today: {daily_calories} calories
+• Daily goal: {daily_goal} calories
+
+**Raw JSON:**
+```json
+{json.dumps(nutrition_data, indent=2)}
+```
+                    """
+                    
+                    # Create progress bar
+                    progress_bar = create_progress_bar_html(daily_calories, daily_goal)
+                    
+                    return formatted_output, progress_bar
                 else:
                     # If no JSON found, return raw response
-                    return full_response
+                    progress_bar = create_progress_bar_html(daily_calories, daily_goal)
+                    return full_response, progress_bar
                     
             except json.JSONDecodeError:
                 # If JSON parsing fails, return the raw response
-                return f"Raw response (JSON parsing failed): {full_response}"
+                progress_bar = create_progress_bar_html(daily_calories, daily_goal)
+                return f"Raw response (JSON parsing failed): {full_response}", progress_bar
         else:
-            return "No response received or response was empty"
+            progress_bar = create_progress_bar_html(daily_calories, daily_goal)
+            return "No response received or response was empty", progress_bar
         
     except Exception as e:
-        return f"Error: {str(e)}"
+        progress_bar = create_progress_bar_html(daily_calories, daily_goal)
+        return f"Error: {str(e)}", progress_bar
 
-# Build Gradio UI
-iface = gr.Interface(
-    fn=analyze_nutrition,
-    inputs=gr.Image(type="filepath", label="Upload a food image"),
-    outputs=gr.Textbox(label="Nutritional Information (JSON)", lines=15, max_lines=20, show_copy_button=True),
-    title="WhatTheFork? - Let me help you analyze your meal",
-    description="Upload an image of your meal and get nutritional information in JSON format (calories, fats, proteins, carbs).",
-)
+# Function to reset daily calories manually
+def reset_calories():
+    global daily_calories
+    daily_calories = 0
+    return create_progress_bar_html(daily_calories, 2000)  # Default goal for display
+
+# Build Gradio UI with custom layout
+with gr.Blocks(title="WhatTheFork? - Calorie Tracker", theme=gr.themes.Soft()) as iface:
+    gr.Markdown("# 🍽️ WhatTheFork? - Smart Meal Analysis & Calorie Tracker")
+    gr.Markdown("Upload an image of your meal to get nutritional information and track your daily calorie progress!")
+    
+    with gr.Row():
+        with gr.Column(scale=1):
+            # Input section
+            gr.Markdown("### 📤 Upload & Settings")
+            food_image = gr.Image(type="filepath", label="📷 Upload a food image")
+            daily_goal = gr.Number(
+                label="🎯 Daily Calorie Goal", 
+                value=2000, 
+                minimum=500, 
+                maximum=5000,
+                info="Set your target daily calorie intake"
+            )
+            
+            with gr.Row():
+                analyze_btn = gr.Button("🔍 Analyze Meal", variant="primary", size="lg")
+                reset_btn = gr.Button("🔄 Reset Daily Count", variant="secondary")
+        
+        with gr.Column(scale=2):
+            # Output section
+            gr.Markdown("### 📊 Results")
+            nutrition_output = gr.Textbox(
+                label="📋 Nutritional Analysis", 
+                lines=12, 
+                max_lines=20, 
+                show_copy_button=True,
+                placeholder="Upload a food image and click 'Analyze Meal' to see results..."
+            )
+            progress_output = gr.HTML(
+                label="📈 Daily Progress",
+                value=create_progress_bar_html(0, 2000)
+            )
+    
+    # Event handlers
+    analyze_btn.click(
+        fn=analyze_nutrition,
+        inputs=[food_image, daily_goal],
+        outputs=[nutrition_output, progress_output]
+    )
+    
+    reset_btn.click(
+        fn=reset_calories,
+        outputs=progress_output
+    )
 
 if __name__ == "__main__":
     # Warm up the model to reduce first-time latency
     warm_up_model()
-    iface.launch(share=True)
+    # Launch with browser auto-open
+    iface.launch(share=True, inbrowser=True)
