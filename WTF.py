@@ -108,4 +108,4 @@ iface = gr.Interface(
 if __name__ == "__main__":
     # Warm up the model to reduce first-time latency
     warm_up_model()
-    iface.launch()
+    iface.launch(share=True)
