@@ -2,7 +2,7 @@ import gradio as gr
 import ollama
 import base64
 from PIL import Image
-from database import create_db_and_tables
+from database import create_db_and_tables, save_food
 import io
 import time
 import json
@@ -157,6 +157,20 @@ def chat_with_ollama(message: str, history, image_path=None):
                             meal_calories = nutrition_data.get('total_calories', 0)
                             daily_calories += meal_calories
                             
+                            # Save nutrition data to database
+                            try:
+                                food_name = f"Meal_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                                saved_food = save_food(
+                                    name=food_name,
+                                    calories=nutrition_data.get('total_calories', 0),
+                                    fats=nutrition_data.get('total_fats_g', 0),
+                                    proteins=nutrition_data.get('total_proteins_g', 0),
+                                    carbs=nutrition_data.get('total_carbs_g', 0)
+                                )
+                                db_status = f"✅ Saved to database (ID: {saved_food.id})"
+                            except Exception as db_error:
+                                db_status = f"❌ Database error: {str(db_error)}"
+                            
                             # Format nutritional information for display
                             formatted_output = f"""🍽️ **Meal Analysis Results**
 
@@ -171,7 +185,10 @@ def chat_with_ollama(message: str, history, image_path=None):
 • Total today: {daily_calories} calories
 • Daily goal: {daily_goal} calories
 
-**Raw JSON for database:**
+💾 **Database:**
+{db_status}
+
+**Raw JSON:**
 ```json
 {json.dumps(nutrition_data, indent=2)}
 ```"""
@@ -344,6 +361,9 @@ def create_interface():
     return demo
 
 if __name__ == "__main__":
+    # Initialize database and tables
+    create_db_and_tables()
+    
     # Warm up the model to reduce first-time latency
     warm_up_model()
     

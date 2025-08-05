@@ -10,12 +10,13 @@ def create_db_and_tables():
     print("Creating database")
     SQLModel.metadata.create_all(engine)
 
-def save_food(name: str, calories: int):
+def save_food(name: str, calories: int, fats: int = 0, proteins: int = 0, carbs: int = 0):
     """Save food data to the database"""
     with Session(engine) as session:
-        food = Food(name=name, calories=calories)
+        food = Food(name=name, calories=calories, fats=fats, proteins=proteins, carbs=carbs)
         session.add(food)
         session.commit()
+        session.refresh(food)
         return food
 
 def get_all_foods():
