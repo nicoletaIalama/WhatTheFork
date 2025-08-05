@@ -18,5 +18,8 @@ class Account(SQLModel, table=True):
 class Food(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(index=True)
-    calories: int
+    calories: int = Field(default=0)
+    fats: int = Field(default=0)
+    proteins: int = Field(default=0)
+    carbs: int = Field(default=0)
     created_at: datetime = Field(default_factory=datetime.utcnow)

@@ -2,7 +2,7 @@ import gradio as gr
 import ollama
 import base64
 from PIL import Image
-from database import create_db_and_tables
+from database import create_db_and_tables, save_food
 import io
 import time
 import json
@@ -145,7 +145,7 @@ def chat_with_ollama(message: str, history, image_path=None):
                 # Process and validate JSON response
                 nutrition_data = None
                 meal_calories = 0
-                
+
                 if json_response_text and len(json_response_text.strip()) > 0:
                     try:
                         # Extract JSON from response (in case there's extra text)
@@ -154,6 +154,18 @@ def chat_with_ollama(message: str, history, image_path=None):
                             json_str = json_match.group()
                             # Validate it's proper JSON
                             nutrition_data = json.loads(json_str)
+
+                            try:
+                                food_name = f"Meal_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                                saved_food = save_food(
+                                    name=food_name,
+                                    calories=nutrition_data.get('total_calories', 0),
+                                    fats=nutrition_data.get('total_fats_g', 0),
+                                    proteins=nutrition_data.get('total_proteins_g', 0),
+                                    carbs=nutrition_data.get('total_carbs_g', 0)
+                                )
+                            except Exception as db_error:
+                                print(f"❌ Database error: {db_error}")
                             
                             # Extract calories and update daily total
                             meal_calories = nutrition_data.get('total_calories', 0)
@@ -161,19 +173,19 @@ def chat_with_ollama(message: str, history, image_path=None):
                             
                             # Log JSON data to terminal
                             print(f"\n🍽️ Nutrition Data (JSON): {json.dumps(nutrition_data, indent=2)}")
-                            
+
                     except json.JSONDecodeError:
                         print(f"\n⚠️ Failed to extract JSON from response: {json_response_text}")
-                
+
                 # Format the user message to show they shared an image
                 if message.strip():
                     user_message = f"{message} [🖼️]"
                 else:
                     user_message = "[🖼️ Food image]"
-                
+
                 # Add user message immediately
                 history.append((user_message, ""))
-                
+
                 # Now get full descriptive response with streaming including nutritional info
                 if message.strip():
                     if nutrition_data:
@@ -242,11 +254,11 @@ Finally, provide one helpful insight or tip about the meal. Be conversational an
 3. One helpful insight or tip
 
 Be conversational and helpful."""
-                
+
                 # Add user message immediately
                 history[-1] = (user_message, "")
                 yield "", history
-                
+
                 # Stream the full response
                 ai_response = ""
                 try:
@@ -263,14 +275,14 @@ Be conversational and helpful."""
                             'repeat_penalty': 1.1
                         }
                     )
-                    
+
                     for chunk in stream:
                         if chunk.get('response'):
                             ai_response += chunk['response']
                             # Update the last message in history with streaming response
                             history[-1] = (user_message, ai_response)
                             yield "", history
-                            
+
                 except Exception as e:
                     ai_response = f"Sorry, I had trouble analyzing the image: {str(e)}"
                     history[-1] = (user_message, ai_response)
@@ -281,7 +293,7 @@ Be conversational and helpful."""
                 user_message = f"{message} [🖼️ Error]" if message.strip() else "[🖼️ Error]"
                 history.append((user_message, ai_response))
                 yield "", history
-        
+
         else:
             # Text-only conversation
             if not message.strip():
@@ -296,7 +308,7 @@ Provide helpful advice about nutrition, healthy eating, meal planning, or calori
             # Add user message immediately
             history.append((message, ""))
             yield "", history
-            
+
             # Stream the text response
             ai_response = ""
             try:
@@ -312,19 +324,19 @@ Provide helpful advice about nutrition, healthy eating, meal planning, or calori
                         'repeat_penalty': 1.1
                     }
                 )
-                
+
                 for chunk in stream:
                     if chunk.get('response'):
                         ai_response += chunk['response']
                         # Update the last message in history with streaming response
                         history[-1] = (message, ai_response)
                         yield "", history
-                        
+
             except Exception as e:
                 ai_response = f"Sorry, I had trouble responding to that: {str(e)}"
                 history[-1] = (message, ai_response)
                 yield "", history
-        
+
     except Exception as e:
         error_message = f"Sorry, I encountered an error: {str(e)}"
         if message.strip():
@@ -439,6 +451,9 @@ def create_interface():
     return demo
 
 if __name__ == "__main__":
+    # Initialize database and tables
+    create_db_and_tables()
+
     # Warm up the model to reduce first-time latency
     warm_up_model()
     
