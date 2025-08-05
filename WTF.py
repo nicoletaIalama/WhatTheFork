@@ -79,7 +79,7 @@ def warm_up_model():
         pass
 
 def chat_with_ollama(message: str, history, image_path=None):
-    """Chat function that handles both text and images with calorie tracking"""
+    """Chat function that handles both text and images with calorie tracking and streaming"""
     global daily_calories, daily_goal
     
     # Reset calories if it's a new day
@@ -119,11 +119,9 @@ def chat_with_ollama(message: str, history, image_path=None):
                     image_bytes = img_byte_arr.getvalue()
                     image_base64 = base64.b64encode(image_bytes).decode('utf-8')
                 
-                # Use ollama-python to generate response with timeout
-                ollama_start = time.time()
-                
+                # First get JSON data for nutrition information (non-streaming)
                 try:
-                    response = ollama.generate(
+                    json_response = ollama.generate(
                         model='llava',
                         prompt='Analyze this food image and provide nutritional information. Respond ONLY with valid JSON in this exact format: {"total_calories": 500, "total_fats_g": 25, "total_proteins_g": 30, "total_carbs_g": 45}. Estimate the total nutritional values for all food items visible in the image.',
                         images=[image_base64],
@@ -139,15 +137,19 @@ def chat_with_ollama(message: str, history, image_path=None):
                     ai_response = f"Processing failed: {ollama_error}"
                     user_message = f"{message} [🖼️ Error]" if message.strip() else "[🖼️ Error]"
                     history.append((user_message, ai_response))
-                    return "", history
+                    yield "", history
+                    return
                 
-                full_response = response.get('response', 'No response received from model')
+                json_response_text = json_response.get('response', 'No response received from model')
                 
                 # Process and validate JSON response
-                if full_response and len(full_response.strip()) > 0:
+                nutrition_data = None
+                meal_calories = 0
+                
+                if json_response_text and len(json_response_text.strip()) > 0:
                     try:
                         # Extract JSON from response (in case there's extra text)
-                        json_match = re.search(r'\{.*\}', full_response, re.DOTALL)
+                        json_match = re.search(r'\{.*\}', json_response_text, re.DOTALL)
                         if json_match:
                             json_str = json_match.group()
                             # Validate it's proper JSON
@@ -157,82 +159,177 @@ def chat_with_ollama(message: str, history, image_path=None):
                             meal_calories = nutrition_data.get('total_calories', 0)
                             daily_calories += meal_calories
                             
-                            # Format nutritional information for display
-                            formatted_output = f"""🍽️ **Meal Analysis Results**
-
-📊 **Nutritional Information:**
-• 🔥 Calories: {nutrition_data.get('total_calories', 'N/A')}
-• 🥑 Fats: {nutrition_data.get('total_fats_g', 'N/A')}g
-• 🥩 Proteins: {nutrition_data.get('total_proteins_g', 'N/A')}g
-• 🍞 Carbs: {nutrition_data.get('total_carbs_g', 'N/A')}g
-
-📈 **Daily Progress:**
-• Meal added: +{meal_calories} calories
-• Total today: {daily_calories} calories
-• Daily goal: {daily_goal} calories
-
-**Raw JSON for database:**
-```json
-{json.dumps(nutrition_data, indent=2)}
-```"""
-                            
-                            ai_response = formatted_output
-                        else:
-                            # If no JSON found, return raw response
-                            ai_response = full_response
+                            # Log JSON data to terminal
+                            print(f"\n🍽️ Nutrition Data (JSON): {json.dumps(nutrition_data, indent=2)}")
                             
                     except json.JSONDecodeError:
-                        # If JSON parsing fails, return the raw response
-                        ai_response = f"Raw response (JSON parsing failed): {full_response}"
-                else:
-                    ai_response = "No response received or response was empty"
+                        print(f"\n⚠️ Failed to extract JSON from response: {json_response_text}")
                 
                 # Format the user message to show they shared an image
                 if message.strip():
                     user_message = f"{message} [🖼️]"
                 else:
                     user_message = "[🖼️ Food image]"
+                
+                # Add user message immediately
+                history.append((user_message, ""))
+                
+                # Now get full descriptive response with streaming including nutritional info
+                if message.strip():
+                    if nutrition_data:
+                        description_prompt = f"""I've shared an image of food with you along with this message: "{message}"
+
+You should provide a complete meal analysis response that includes:
+
+🍽️ **Meal Analysis Results**
+
+First, provide a brief description of what food you can see in the image.
+
+Then include the nutritional information in this format:
+📊 **Nutritional Information:**
+• 🔥 Calories: {nutrition_data.get('total_calories', 'N/A')}
+• 🥑 Fats: {nutrition_data.get('total_fats_g', 'N/A')}g  
+• 🥩 Proteins: {nutrition_data.get('total_proteins_g', 'N/A')}g
+• 🍞 Carbs: {nutrition_data.get('total_carbs_g', 'N/A')}g
+
+Then show the daily progress:
+📈 **Daily Progress:**
+• Meal added: +{meal_calories} calories
+• Total today: {daily_calories} calories  
+• Daily goal: {daily_goal} calories
+
+Finally, provide relevant advice based on the user's message and nutritional analysis. Be conversational and helpful."""
+                    else:
+                        description_prompt = f"""I've shared an image of food with you along with this message: "{message}"
+
+Please provide a helpful response that includes:
+🍽️ **Meal Analysis Results**
+
+1. A description of what food you can see in the image
+2. General nutritional insights about the food
+3. Relevant advice based on the user's message
+
+Be conversational and helpful."""
+                else:
+                    if nutrition_data:
+                        description_prompt = f"""I've shared an image of food with you. Please provide a complete meal analysis that includes:
+
+🍽️ **Meal Analysis Results**
+
+First, provide a brief description of what food you can see in the image.
+
+Then include the nutritional information in this format:
+📊 **Nutritional Information:**
+• 🔥 Calories: {nutrition_data.get('total_calories', 'N/A')}
+• 🥑 Fats: {nutrition_data.get('total_fats_g', 'N/A')}g
+• 🥩 Proteins: {nutrition_data.get('total_proteins_g', 'N/A')}g  
+• 🍞 Carbs: {nutrition_data.get('total_carbs_g', 'N/A')}g
+
+Then show the daily progress:
+📈 **Daily Progress:**
+• Meal added: +{meal_calories} calories
+• Total today: {daily_calories} calories
+• Daily goal: {daily_goal} calories
+
+Finally, provide one helpful insight or tip about the meal. Be conversational and helpful."""
+                    else:
+                        description_prompt = """I've shared an image of food with you. Please provide a meal analysis that includes:
+
+🍽️ **Meal Analysis Results**
+
+1. A description of what food you can see in the image
+2. General nutritional insights about the food  
+3. One helpful insight or tip
+
+Be conversational and helpful."""
+                
+                # Add user message immediately
+                history[-1] = (user_message, "")
+                yield "", history
+                
+                # Stream the full response
+                ai_response = ""
+                try:
+                    stream = ollama.generate(
+                        model='llava',
+                        prompt=description_prompt,
+                        images=[image_base64],
+                        stream=True,
+                        options={
+                            'temperature': 0.7,
+                            'num_predict': 300,  # Increased for full response
+                            'num_ctx': 1024,
+                            'top_p': 0.9,
+                            'repeat_penalty': 1.1
+                        }
+                    )
+                    
+                    for chunk in stream:
+                        if chunk.get('response'):
+                            ai_response += chunk['response']
+                            # Update the last message in history with streaming response
+                            history[-1] = (user_message, ai_response)
+                            yield "", history
+                            
+                except Exception as e:
+                    ai_response = f"Sorry, I had trouble analyzing the image: {str(e)}"
+                    history[-1] = (user_message, ai_response)
+                    yield "", history
                     
             except Exception as e:
                 ai_response = f"Sorry, I had trouble processing that image: {str(e)}"
                 user_message = f"{message} [🖼️ Error]" if message.strip() else "[🖼️ Error]"
+                history.append((user_message, ai_response))
+                yield "", history
         
         else:
             # Text-only conversation
             if not message.strip():
-                return "", history
+                yield "", history
+                return
             
             # Create conversational prompt for nutrition questions
             prompt = f"""You are a helpful nutritionist and food expert. The user asked: "{message}"
 
 Provide helpful advice about nutrition, healthy eating, meal planning, or calorie management. Be conversational and informative."""
 
-            # Call Ollama for text conversation
-            response = ollama.generate(
-                model='llama3.2',
-                prompt=prompt,
-                options={
-                    'temperature': 0.8,
-                    'num_predict': 200,
-                    'num_ctx': 1024,
-                    'top_p': 0.9,
-                    'repeat_penalty': 1.1
-                }
-            )
+            # Add user message immediately
+            history.append((message, ""))
+            yield "", history
             
-            ai_response = response.get('response', 'Sorry, I had trouble responding to that.')
-            user_message = message
-        
-        # Update history
-        history.append((user_message, ai_response))
-        
-        return "", history
+            # Stream the text response
+            ai_response = ""
+            try:
+                stream = ollama.generate(
+                    model='llama3.2',
+                    prompt=prompt,
+                    stream=True,
+                    options={
+                        'temperature': 0.8,
+                        'num_predict': 200,
+                        'num_ctx': 1024,
+                        'top_p': 0.9,
+                        'repeat_penalty': 1.1
+                    }
+                )
+                
+                for chunk in stream:
+                    if chunk.get('response'):
+                        ai_response += chunk['response']
+                        # Update the last message in history with streaming response
+                        history[-1] = (message, ai_response)
+                        yield "", history
+                        
+            except Exception as e:
+                ai_response = f"Sorry, I had trouble responding to that: {str(e)}"
+                history[-1] = (message, ai_response)
+                yield "", history
         
     except Exception as e:
         error_message = f"Sorry, I encountered an error: {str(e)}"
         if message.strip():
             history.append((message, error_message))
-        return "", history
+        yield "", history
 
 # Function to reset daily calories manually
 def reset_calories():
@@ -303,7 +400,7 @@ def create_interface():
             with gr.Row():
                 reset_btn = gr.Button("🔄 Reset Daily Calories", variant="secondary", size="sm")
         
-        # Handle multimodal submission
+        # Handle multimodal submission with streaming
         def handle_multimodal_submit(multimodal_data, history):
             if multimodal_data is None:
                 yield None, history, create_progress_bar_html(daily_calories, daily_goal)
@@ -316,13 +413,11 @@ def create_interface():
             # Use the first image file if any
             image_path = files[0] if files else None
             
-            # Process with chat function
-            result = chat_with_ollama(message, history, image_path)
-            
-            # Update progress bar after potential calorie addition
-            updated_progress = create_progress_bar_html(daily_calories, daily_goal)
-            
-            yield None, result[1], updated_progress
+            # Process with streaming chat function
+            for result in chat_with_ollama(message, history, image_path):
+                # Update progress bar after potential calorie addition
+                updated_progress = create_progress_bar_html(daily_calories, daily_goal)
+                yield None, result[1], updated_progress
         
         # Handle reset button
         def handle_reset():
